@@ -1,0 +1,64 @@
+#!/bin/bash
+
+
+interface_loop () {
+file=$1
+device=`echo $file | sed 's/.*\/// ; s/_.*//'`
+if [ -e $file ] ; then
+
+if [ $header -eq 1  ]; then
+echo "
+##################################################################################################
+##################################################################################################
+##################################################################################################
+Interface list derived from: `ls -la $file`
+##################################################################################################
+##################################################################################################
+##################################################################################################
+"
+fi
+
+# sw1 = ip address set
+# sw2 = interface set indicator
+# sw3 = interface up down indicator
+
+awk "/^config system interface.$/,/^end/" $file | sed 's/"//g'| tr -d "\015" | awk -v device=$device '
+ BEGIN { sw1 = 0 ; sw2 = 0 ; sw3 = 0 ; edit = 0 }
+ /^[ ]{4}edit/ { interface = $2 ; sw1 = 0 ; sw3 = 0 }
+ /set vdom/ { vdom = $3 }
+ /^[ ]{8}set ip [1-9]/  { ip =$3 ; mask = $4 ; sw1 = 1 }
+ /set status down/ { sw3 = 1 }
+ /set interface/ { hw = $3 }
+ /set type tunnel/ { sw1 = 0 }
+ /set type vdom-link/ { interface = interface ":vdom-link" }
+ /set vlanid/ { if ( sw1 == 1 && sw3 == 0 ) { print device ":" hw ":" $3 ":" interface "\t" ip "\t" mask "\t" vdom ; sw1 = 0 }}
+ /set vlanid/ { if ( sw1 == 1 && sw3 == 1 ) { print device ":" "*" hw ":" $3 ":" interface "\t" ip "\t" mask "\t" vdom ; sw1 = 0 }}
+ /^[ ]{4}next/  { if ( sw1 == 1 && sw3 == 0 ) { print device ":" interface "\t" ip "\t" mask "\t" vdom } }
+ /^[ ]{4}next/  { if ( sw1 == 1 && sw3 == 1 ) { print device ":" "*" interface "\t" ip "\t" mask "\t" vdom } }
+ ' | sort -k4 | uniq | column -t
+else
+echo "
+No suitable log file found for: $1
+"
+fi
+}
+
+if [ $# -eq 0  ]; then
+
+header=1
+for z in `ls /configs/*fw* /configs/*fg*` ; do
+interface_loop $z
+done
+
+else
+
+header=0
+for z in `ls /configs/*fw* /configs/*fg*` ; do
+interface_loop $z
+done | grep -i $1.*$2.*$3 | column -t
+
+fi 
+
+echo "
+Interfaces marked with an asterix are shutdown
+"
